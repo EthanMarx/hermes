@@ -3,7 +3,7 @@ name = "hermes"
 version = "0.1.0"
 description = "Inference-as-a-Service deployment made simple"
 authors = [
-    "Alec Gunny <alec.gunny@ligo.org>",
+    "Alec Gunny <alec.gunny@ligo.org>", "Ethan Marx <emarx@mit.edu>"
 ]
 
 [tool.poetry.dependencies]
