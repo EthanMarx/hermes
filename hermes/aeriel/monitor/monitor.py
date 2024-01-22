@@ -37,10 +37,10 @@ class ServerMonitor(PipelineProcess):
     Queries the Triton metrics endpoint at potentially
     multiple IP addresses and records server-side latency
     and throughput statistics at intervals for analyzing
-    server performance. Standard Triton conventions for
-    port mapping are expected: gRPC requests to port 8001
-    and metrics requests to port 8002. Data is recorded to
-    a csv file with columns for (in order)
+    server performance. gRPC and Metrics ports are configurable,
+    but default to the standard Triton port mapping conventions:
+    gRPC requests to port 8001 and metrics requests to port 8002.
+    Data is recorded to a csv file with columns for (in order)
         - the time at which the metrics are queried
         - the ip address metrics were queried from
         - the model to which this row of metrics apply
@@ -81,6 +81,15 @@ class ServerMonitor(PipelineProcess):
             each inference service. The actual rate may be lower
             due to download and parsing latencies, as well as
             threading overhead.
+        grpc_port:
+            The port on which to query gRPC requests. Defaults
+            to 8001.
+        metrics_port:
+            The port on which to query metrics requests. Defaults
+            to 8002.
+        use_ssl:
+            Whether to use SSL when querying metrics
+            (i.e. https vs http). Defaults to False.
         name:
             Name to give to this process
         **kwargs:
@@ -95,11 +104,18 @@ class ServerMonitor(PipelineProcess):
         filename: str,
         model_version: int = -1,
         max_request_rate: float = 10,
+        grpc_port: int = 8001,
+        metrics_port: int = 8002,
+        use_ssl: bool = False,
         **kwargs,
     ) -> None:
         self.filename = filename
         if isinstance(ips, str):
             ips = [ips]
+
+        self.metrics_port = metrics_port
+        self.grpc_port = grpc_port
+        self.use_ssl = use_ssl
 
         # infer the names and versions of the models
         # we want to be requesting from each deployment
@@ -108,8 +124,7 @@ class ServerMonitor(PipelineProcess):
         for ip in self.ips:
             # get the config of the model on each IP to
             # figure out which models we need to monitor
-            # TODO: make port configurable
-            client = triton.InferenceServerClient(f"{ip}:8001")
+            client = triton.InferenceServerClient(f"{ip}:{self.grpc_port}")
             config = client.get_model_config(model_name).config
 
             if config.platform == "ensemble":
@@ -180,12 +195,17 @@ class ServerMonitor(PipelineProcess):
         self.max_request_rate = max_request_rate
 
     def parse_for_ip(
-        self, ip: str, http: urllib3.PoolManager, tracker: Dict[str, int]
+        self,
+        ip: str,
+        http: urllib3.PoolManager,
+        tracker: Dict[str, int],
     ) -> List[str]:
         # request some metrics data from the given IP
         # and record the time at which we get the response
-        # TODO: make port configurable
-        response = http.request("GET", f"http://{ip}:8002/metrics")
+        prefix = "https" if self.use_ssl else "http"
+        response = http.request(
+            "GET", f"{prefix}://{ip}:{self.metrics_port}/metrics"
+        )
         timestamp = time.time()
         content = response.data.decode()
 
