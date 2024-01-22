@@ -124,7 +124,9 @@ class ServerMonitor(PipelineProcess):
         for ip in self.ips:
             # get the config of the model on each IP to
             # figure out which models we need to monitor
-            client = triton.InferenceServerClient(f"{ip}:{self.grpc_port}")
+            client = triton.InferenceServerClient(
+                f"{ip}:{self.grpc_port}", ssl=self.use_ssl
+            )
             config = client.get_model_config(model_name).config
 
             if config.platform == "ensemble":
