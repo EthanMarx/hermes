@@ -3,7 +3,7 @@ import sys
 import threading
 import time
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Union
 
 import tritonclient.grpc as triton
 import urllib3
@@ -100,8 +100,9 @@ class ServerMonitor(PipelineProcess):
     def __init__(
         self,
         model_name: str,
-        ips: Union[str, Iterable[str]],
+        model_ips: Union[str, Iterable[str]],
         filename: str,
+        metric_ips: Optional[Union[str, Iterable[str]]] = None,
         model_version: int = -1,
         max_request_rate: float = 10,
         grpc_port: int = 8001,
@@ -110,18 +111,22 @@ class ServerMonitor(PipelineProcess):
         **kwargs,
     ) -> None:
         self.filename = filename
-        if isinstance(ips, str):
-            ips = [ips]
 
+        # list of tuple of ips where the first ip
+        # in each tuple represents the ip for querying
+        # model information, and the second ip represents
+        # the ip for querying metrics.
+        self.ips = self._validate_ips(model_ips, metric_ips)
+        print(self.ips)
         self.metrics_port = metrics_port
         self.grpc_port = grpc_port
         self.use_ssl = use_ssl
 
         # infer the names and versions of the models
         # we want to be requesting from each deployment
-        self.ips = list(ips)
         self.models = self.version = None
         for ip in self.ips:
+            ip = ip[0]
             # get the config of the model on each IP to
             # figure out which models we need to monitor
             client = triton.InferenceServerClient(
@@ -195,6 +200,30 @@ class ServerMonitor(PipelineProcess):
         super().__init__(**kwargs)
         self.filename = filename
         self.max_request_rate = max_request_rate
+
+    def _validate_ips(self, model_ips, metric_ips):
+        # first convert ips to lists if they
+        # were passed as strings
+        if isinstance(model_ips, str):
+            model_ips = [model_ips]
+
+        if isinstance(metric_ips, str):
+            metric_ips = [metric_ips]
+
+        # if user didn't pass metric_ips, assume
+        # they want to use the same ips as model
+        if metric_ips is None:
+            metric_ips = model_ips.copy()
+        else:
+            if len(metric_ips) != len(model_ips):
+                raise ValueError(
+                    "model_ips and metric_ips must both be same length "
+                    "found {} model_ip and {} metric_ips".format(
+                        len(metric_ips), len(model_ips)
+                    )
+                )
+
+        return list(zip(model_ips, metric_ips))
 
     def parse_for_ip(
         self,
@@ -329,7 +358,7 @@ class ServerMonitor(PipelineProcess):
             lock = threading.Lock()
             with ThreadPoolExecutor(len(self.ips)) as ex:
                 args = (http, f, lock)
-                fs = [ex.submit(self.target, i, *args) for i in self.ips]
+                fs = [ex.submit(self.target, i[1], *args) for i in self.ips]
 
             # wait until all the threads are done
             # (i.e. self.stopped == True, or an exception
