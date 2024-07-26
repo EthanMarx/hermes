@@ -30,7 +30,7 @@ requests = "^2.26.0"
 
 # quiver optional dependencies
 tensorflow = {version = "<2.14", optional = true}
-torch = {version = "^2.0", optional = true}
+torch = {version = "^2.4", optional = true}
 google-cloud-storage = {version = "^1.38", optional = true }
 nvidia-tensorrt = { version = "^8.0", optional = true, source = "ngc" }
 onnx = {version = "^1.15.0", optional = true}
@@ -47,6 +47,8 @@ pre-commit = "^2.16"
 pytest = "^6.2"
 pytest-depends = "^1.0"
 tox = "^4.12.1"
+jupyter = "^1.0.0"
+onnxscript = "^0.1.0.dev20240726"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^4.1"

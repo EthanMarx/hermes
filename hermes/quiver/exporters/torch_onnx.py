@@ -9,6 +9,8 @@ try:
     _has_torch = True
 except ImportError:
     _has_torch = False
+else:
+    from torch._export.converter import TS2EPConverter
 
 from hermes.quiver import Platform
 from hermes.quiver.exporters import Exporter
@@ -128,7 +130,14 @@ class TorchOnnx(Exporter, metaclass=TorchOnnxMeta):
             shapes = {name: shape for name, shape in zip(output_names, shapes)}
         return shapes
 
-    def export(self, model_fn, export_path, verbose=0, **kwargs):
+    def export(
+        self, 
+        model_fn, 
+        export_path, 
+        dynamo: bool = False,
+        verbose=0, 
+        **kwargs
+    ):
         inputs, dynamic_axes = [], {}
         for input in self.config.input:
             if input.dims[0] == -1:
@@ -147,15 +156,30 @@ class TorchOnnx(Exporter, metaclass=TorchOnnxMeta):
         # export to a BytesIO object so that we
         # can copy the bytes to cloud filesystems
         export_obj = BytesIO()
-        torch.onnx.export(
-            model_fn,
-            inputs,
-            export_obj,
-            input_names=[x.name for x in self.config.input],
-            output_names=[x.name for x in self.config.output],
-            dynamic_axes=dynamic_axes or None,
-            **kwargs
-        )
+    
+        if dynamo:
+            # dynamo requires either a torch.nn.Module
+            # or a ExportedProgram, so convert to ExportedProgram
+            # if necessary
+            if isinstance(model_fn, torch.jit.ScriptModule):
+                model_fn = TS2EPConverter(model_fn, inputs).convert()
+            
+            onnx_program = torch.onnx.dynamo_export(
+                model_fn,
+                inputs,
+            )
+            export_obj.write(onnx_program.model_proto.SerializeToString())
+
+        else:
+            torch.onnx.export(
+                model_fn,
+                inputs,
+                export_obj,
+                input_names=[x.name for x in self.config.input],
+                output_names=[x.name for x in self.config.output],
+                dynamic_axes=dynamic_axes or None,
+                **kwargs
+            )
 
         # write the written bytes and return
         # the path to which they were written
